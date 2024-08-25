@@ -1,6 +1,3 @@
-require('dotenv').config();
-
-
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
@@ -9,17 +6,16 @@ const multer = require("multer");
 const path = require("path");
 const cors = require("cors");
 const { type } = require("os"); 
-const bcrypt = require('bcrypt');
-
-
 const port = process.env.PORT || 4000;
 
 app.use(express.json());
 app.use(cors());
 
 // Database Connection With MongoDB
-mongoose.connect(process.env.MONGODB_URI);
+mongoose.connect("mongodb+srv://tannisthabiswasofficial:5oSFtoWk5rHnudKD@cluster0.nihckth.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0");
 
+// paste your mongoDB Connection string above with password
+// password should not contain '@' special character
 
 
 //Image Storage Engine 
@@ -49,7 +45,7 @@ const fetchuser = async (req, res, next) => {
     res.status(401).send({ errors: "Please authenticate using a valid token" });
   }
   try {
-    const data = jwt.verify(token, process.env.JWT_SECRET);
+    const data = jwt.verify(token, "secret_ecom");
     req.user = data.user;
     next();
   } catch (error) {
@@ -125,6 +121,29 @@ app.get("/", (req, res) => {
 });
 
 
+// Login endpoint
+app.post('/login', async (req, res) => {
+  let success = false;
+  let user = await Users.findOne({ email: req.body.email });
+  if (user) {
+    const passCompare = req.body.password === user.password;
+    if (passCompare) {
+      const data = {
+        user: {
+          id: user.id,
+          role: user.role // Include role in token
+        }
+      };
+      success = true;
+      const token = jwt.sign(data, 'secret_ecom');
+      res.json({ success, token, role: user.role });
+    } else {
+      return res.status(400).json({ success: success, errors: "Please try with correct email/password" });
+    }
+  } else {
+    return res.status(400).json({ success: success, errors: "Please try with correct email/password" });
+  }
+});
 
 // Signup endpoint
 app.post('/signup', async (req, res) => {
@@ -134,51 +153,24 @@ app.post('/signup', async (req, res) => {
     return res.status(400).json({ success: success, errors: "Existing user found with this email" });
   }
 
-  const salt = await bcrypt.genSalt(10);
-  const hashedPassword = await bcrypt.hash(req.body.password, salt);
-console.log("hash",hashedPassword);
   const user = new Users({
     name: req.body.username,
     email: req.body.email,
-    password: hashedPassword, 
-    role: req.body.role || 'user' 
+    password: req.body.password,
+    role: req.body.role || 'user' // Default to 'user' if no role is provided
   });
 
   await user.save();
   const data = {
     user: {
       id: user.id,
-      role: user.role 
+      role: user.role // Include role in token
     }
   };
 
-  const token = jwt.sign(data, process.env.JWT_SECRET);
+  const token = jwt.sign(data, 'secret_ecom');
   success = true;
   res.json({ success, token, role: user.role });
-});
-
-// Login endpoint
-app.post('/login', async (req, res) => {
-  let success = false;
-  let user = await Users.findOne({ email: req.body.email });
-  if (user) {
-    const passCompare = await bcrypt.compare(req.body.password, user.password); // Compare hashed password
-    if (passCompare) {
-      const data = {
-        user: {
-          id: user.id,
-          role: user.role 
-        }
-      };
-      success = true;
-      const token = jwt.sign(data, process.env.JWT_SECRET);
-      res.json({ success, token, role: user.role });
-    } else {
-      return res.status(400).json({ success: success, errors: "Please try with correct email/password" });
-    }
-  } else {
-    return res.status(400).json({ success: success, errors: "Please try with correct email/password" });
-  }
 });
 
 
