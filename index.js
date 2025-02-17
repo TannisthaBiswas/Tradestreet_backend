@@ -1,6 +1,7 @@
 require('dotenv').config();
 
 
+
 const express = require("express");
 const app = express();
 const mongoose = require("mongoose");
@@ -10,6 +11,8 @@ const path = require("path");
 const cors = require("cors");
 const { type } = require("os"); 
 const bcrypt = require('bcrypt');
+const { v2: cloudinary } = require('cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 
 const port = process.env.PORT || 4000;
@@ -20,26 +23,44 @@ app.use(cors());
 // Database Connection With MongoDB
 mongoose.connect(process.env.MONGODB_URI);
 
+// Configure Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.CLOUD_API_KEY,
+  api_secret: process.env.CLOUD_API_SECRET
+  
+ 
+});
 
-
-//Image Storage Engine 
-const storage = multer.diskStorage({
-  destination: './upload/images',
-  filename: (req, file, cb) => {
-    return cb(null, `${file.fieldname}_${Date.now()}${path.extname(file.originalname)}`)
+// Cloudinary Storage for Multer
+const storage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: "product_images", // Folder name in Cloudinary
+    format: async (req, file) => "jpg", // Convert all to JPG
+    public_id: (req, file) => `${Date.now()}-${file.originalname}`
   }
-})
+});
+
 const upload = multer({ storage: storage })
-app.post("/upload", upload.single('product'), (req, res) => {
-  res.json({
-    success: 1,
-    image_url: `/images/${req.file.filename}`
-  })
-})
+app.post('/upload', upload.array('images', 10), (req, res) => {
+  console.log(req.files); 
+
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: "No files uploaded" });
+  }
+
+  const imageArray = req.files.map(file => ({
+    id: file.filename, 
+    url: file.path     
+  }));
+
+  res.json({ success: true,images: imageArray });
+});
 
 
 // Route for Images folder
-app.use('/images', express.static('upload/images'));
+//app.use('/images', express.static('upload/images'));
 
 
 // MiddleWare to fetch user from token
@@ -83,7 +104,7 @@ const Product = mongoose.model("Product", {
   id: { type: Number, required: true },
   name: { type: String, required: true },
   description: { type: String, required: true },
-  image: { type: String, required: true },
+  images: [{ id: String, url: String }],
   category: { type: String, required: true },
   new_price: { type: Number },
   old_price: { type: Number },
@@ -250,9 +271,10 @@ app.post('/addtocarttwo', fetchuser, async (req, res) => {
    if (existingCartItemIndex >= 0) {
     userData.cartTwo[existingCartItemIndex].quantity += 1;
    }
-   //If not add to cart
+   //If not already in cart, add to cart
    else{
-    
+    console.log("Item images:", item.images);
+
    const cartItem = {
     productId: item._id,      
     size: req.body.size,     
@@ -261,7 +283,7 @@ app.post('/addtocarttwo', fetchuser, async (req, res) => {
     description: item.description,
     old_price: item.old_price,
     new_price: item.new_price,
-    image: item.image,
+    image: item.images[0].url,
     colour:item.colour
    };
    userData.cartTwo.push(cartItem);
@@ -341,7 +363,7 @@ app.post('/getcarttwo', fetchuser, async (req, res) => {
 
 
 // Create an endpoint for adding products using admin panel
-app.post("/addproduct", async (req, res) => {
+app.post("/addproduct", upload.array('images', 10), async (req, res) => {
   let products = await Product.find({});
   let id;
   if (products.length > 0) {
@@ -350,14 +372,18 @@ app.post("/addproduct", async (req, res) => {
     id = last_product.id + 1;
   }
   else { id = 1; }
-  
+  const imageArray = req.files.map(file => ({
+    id: file.filename,
+    url: file.path
+  }));
+
   const sizes = req.body.sizes || [];
   
   const product = new Product({
     id: id,
     name: req.body.name,
     description: req.body.description,
-    image: req.body.image,
+    images: imageArray,
     category: req.body.category,
     new_price: req.body.new_price,
     old_price: req.body.old_price,
@@ -366,6 +392,8 @@ app.post("/addproduct", async (req, res) => {
   });
   await product.save();
   console.log("Saved");
+
+  console.log("Product saved with images:", product.images);
   
  // console.log(req.body);
   res.json({ success: true, name: req.body.name })
