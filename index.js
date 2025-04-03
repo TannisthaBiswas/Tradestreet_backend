@@ -13,10 +13,13 @@ const { type } = require("os");
 const bcrypt = require('bcrypt');
 const { v2: cloudinary } = require('cloudinary');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const Stripe = require("stripe");
 
 
 const port = process.env.PORT || 4000;
+const frontend_url ="http://localhost:3000";
 
+const backend_url ="http://localhost:4000";
 app.use(express.json());
 app.use(cors());
 
@@ -62,6 +65,9 @@ app.post('/upload', upload.array('images', 10), (req, res) => {
 // Route for Images folder
 //app.use('/images', express.static('upload/images'));
 
+
+//Stripe initialization
+const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
 
 // MiddleWare to fetch user from token
 const fetchuser = async (req, res, next) => {
@@ -407,7 +413,6 @@ app.post("/removeproduct", async (req, res) => {
   res.json({ success: true, name: req.body.name })
 });
 
-
 // Create an endpoint for checking out
 app.post('/placeorder', fetchuser, async (req, res) => {
   try {
@@ -444,6 +449,113 @@ app.post('/placeorder', fetchuser, async (req, res) => {
     res.status(500).json({ success: false, message: "An error occurred during checkout." });
   }
 });
+
+// Endpoint for online payment
+app.post("/create-checkout-session", fetchuser, async (req, res) => {
+  try {
+      const userData = await Users.findById(req.user.id);
+      if (!userData) {
+          return res.status(404).send("User not found.");
+      }
+
+      // Get cart items
+      const cartItems = userData.cartTwo;
+      if (cartItems.length === 0) {
+          return res.status(400).send("Cart is empty.");
+      }
+
+      const totalAmount = cartItems.reduce((total, item) => total + item.new_price * item.quantity, 0);
+
+      // Prepare line items for Stripe checkout
+      const lineItems = cartItems.map((item) => ({
+          price_data: {
+              currency: "inr",
+              product_data: {
+                  name: item.name,
+                  metadata: {
+                      size: item.size,
+                      colour: item.colour,
+                  },
+              },
+              unit_amount: Math.round(item.new_price * 100), // Stripe accepts amounts in cents
+          },
+          quantity: item.quantity,
+      }));
+
+      // Create Stripe checkout session
+      const session = await stripe.checkout.sessions.create({
+          payment_method_types: ["card"],
+          mode: "payment",
+          line_items: lineItems,
+          success_url: `${frontend_url}/orderconfirmation?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${frontend_url}/checkout`,
+          metadata: {
+              userId: req.user.id,
+              shippingAddress: JSON.stringify(req.body.shippingAddress),
+              totalAmount: totalAmount,
+          },
+      });
+
+      res.json({ url: session.url });
+  } catch (error) {
+      console.error("Error creating Stripe checkout session:", error);
+      res.status(500).json({ success: false, message: "Failed to create checkout session" });
+  }
+});
+
+app.get('/payment-success', async (req, res) => {
+  const sessionId = req.query.session_id;
+
+  if (!sessionId) {
+      return res.status(400).json({ success: false, message: 'Session ID is required' });
+  }
+
+  try {
+      console.log(`Fetching checkout session for ID: ${sessionId}`);
+      
+      // Retrieve the Checkout Session
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      if (!session || !session.payment_intent) {
+          console.error('Payment intent not found in the session');
+          return res.status(404).json({ success: false, message: 'Payment intent not found' });
+      }
+
+      // Now retrieve the Payment Intent using the correct ID
+      const paymentIntentId = session.payment_intent;
+      console.log(`Fetching payment intent for ID: ${paymentIntentId}`);
+      
+      const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+      console.log('Payment intent retrieved successfully:', paymentIntent);
+ // Fetch user data
+ const userData = await Users.findById(session.metadata.userId);
+ if (!userData) {
+   return res.status(404).json({ success: false, message: "User not found." });
+ }
+
+ // Create and save the order
+ const order = new Order({
+   userId: session.metadata.userId,
+   items: userData.cartTwo, // Ensure the latest cart data is saved
+   totalAmount: session.metadata.totalAmount,
+   shippingAddress: JSON.parse(session.metadata.shippingAddress),
+   paymentStatus: "Completed",
+ });
+
+ await order.save();
+
+ // Clear the cart after successful payment
+ userData.cartTwo = [];
+ await userData.save();
+
+      return res.json({ success: true, message: 'Payment successful', paymentIntent });
+  } catch (error) {
+      console.error('Error handling payment success:', error.message);
+      return res.status(500).json({ success: false, message: 'Error handling payment success' });
+  }
+});
+
 
 // Create an endpoint to fetch all orders for the authenticated user
 app.get('/fetchorders', fetchuser, async (req, res) => {
