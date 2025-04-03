@@ -23,13 +23,13 @@ const frontend_url ="https://tradestreet-frontend.onrender.com";
 app.use(express.json());
 app.use(cors());
 
-const http = require('http');
+const https = require('https');
 
 const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; 
 const SERVER_URL = "https://tradestreet-backend.onrender.com"; 
 const keepServerAlive = () => {
   setInterval(() => {
-    http.get(SERVER_URL, (res) => {
+    https.get(SERVER_URL, (res) => {
       console.log(`Keep-alive ping successful: Status Code ${res.statusCode}`);
     }).on("error", (err) => {
       console.error(`Keep-alive ping failed: ${err.message}`);
