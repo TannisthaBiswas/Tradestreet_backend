@@ -17,9 +17,9 @@ const Stripe = require("stripe");
 
 
 const port = process.env.PORT || 4000;
-const frontend_url ="http://localhost:3000";
+const frontend_url ="https://tradestreet-frontend.onrender.com";
+//"http://localhost:3000";
 
-const backend_url ="http://localhost:4000";
 app.use(express.json());
 app.use(cors());
 
