@@ -23,6 +23,26 @@ const frontend_url ="https://tradestreet-frontend.onrender.com";
 app.use(express.json());
 app.use(cors());
 
+const http = require('http');
+
+const KEEP_ALIVE_INTERVAL = 14 * 60 * 1000; 
+const SERVER_URL = "https://tradestreet-backend.onrender.com"; 
+const keepServerAlive = () => {
+  setInterval(() => {
+    http.get(SERVER_URL, (res) => {
+      console.log(`Keep-alive ping successful: Status Code ${res.statusCode}`);
+    }).on("error", (err) => {
+      console.error(`Keep-alive ping failed: ${err.message}`);
+    });
+  }, KEEP_ALIVE_INTERVAL);
+};
+
+// Start keep-alive pings only in production
+if (process.env.NODE_ENV === "production") {
+  keepServerAlive();
+}
+
+
 // Database Connection With MongoDB
 mongoose.connect(process.env.MONGODB_URI);
 
