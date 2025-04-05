@@ -162,6 +162,7 @@ const Order = mongoose.model("Order", {
   paymentStatus: { type: String, enum: ['Pending', 'Completed', 'Failed'], default: 'Pending' },
   orderStatus: { type: String, enum: ['Processing', 'Shipped', 'Delivered', 'Cancelled'], default: 'Processing' },
   createdAt: { type: Date, default: Date.now },
+  paymentIntentId: { type: String, unique: true }
 });
 
 
@@ -540,10 +541,16 @@ app.get('/payment-success', async (req, res) => {
           console.error('Payment intent not found in the session');
           return res.status(404).json({ success: false, message: 'Payment intent not found' });
       }
-
+      
       // Now retrieve the Payment Intent using the correct ID
       const paymentIntentId = session.payment_intent;
-      console.log(`Fetching payment intent for ID: ${paymentIntentId}`);
+      
+
+      const existingOrder = await Order.findOne({ paymentIntentId });
+      if (existingOrder) {
+        
+        return res.json({ success: true, message: 'Payment already processed', paymentIntent: existingOrder });
+      }
       
       const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
@@ -561,6 +568,7 @@ app.get('/payment-success', async (req, res) => {
    totalAmount: session.metadata.totalAmount,
    shippingAddress: JSON.parse(session.metadata.shippingAddress),
    paymentStatus: "Completed",
+   paymentIntentId: paymentIntentId,
  });
 
  await order.save();
